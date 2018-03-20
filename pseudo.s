@@ -54,19 +54,31 @@ cards[16]
 .section .text
 
 _start:
-    INITSHITS:
+    INIT:
     # init devices
+    #display initial screen
     
-    # draw shits on screen
-    # flip cards
-    # flip cards back
-
-    # start game
+    WaitForStartLoop:
     # start timer (if we're doing that)
     # enables interrupts for GPIO (PS2 for first implementation) /TIMER
+    # break out of loop when triggered by button press? (not interrupt)
+    
+    GameSetUp:
+    # call drawAllCards
+    # flip cards - have an image with all cards flipped? set timer for a certain amount of time
+        #timer not interrupt based
+    # flip cards back after timer
 
-    BIGBOYLOOP:
-
+    MainLoop:
+    #branch out of loop when either score reaches max value
+    #display winner on screen
+    #br on timer to GameDone
+    
+    GameDone:
+    #restore flipped values
+    #restore locations and scores
+    #Display initial screen
+    #br WaitForStartLoop
 
 .section .exceptions, "ax"
 IHANDLER:
@@ -77,18 +89,38 @@ IHANDLER:
     br EXIT_IH 
 
     TIMER_IH:
-    # do some shit
+    #display time out message on screen
+    # change values stored in memory for current and previous player
+    #restore all flipped values
+    #restore numIncremented
+    #restore LOC1 and LOC2
+    
     br EXIT_IH
 
     INPUT_IH:
-    # do some shit
+    #check numSelected
+    #if 0
+        #update LOC1
+        #change flipped value (boolean) of selected card
+        #increment numSelected
+        #branch to EXIT_IH
+    #if 1
+        #update LOC2
+        #change flipped value (boolean) of selected card
+        # call drawAllCards - wait for timer before moving on (so it displays for a certain amount of time)
+        #call checkIfPair
+        #if pair, updateScore
+        #restore all flipped values
+        #restore LOC1 and LOC2
+        #reset numSelected
+        #update current and previous player
+    #drawAllCards      
     br EXIT_IH
 
-
-
-EXIT_IH:
-# restore shits
-subi ea, ea, 4
+    EXIT_IH:
+    # restore registers
+    #enable interrupts (PIE to 1)
+    subi ea, ea, 4
 eret
 
 
@@ -96,22 +128,18 @@ eret
 # check if selected pair is valid pair
 checkIfPair:
 # save registers (ra + used)
+#compare values in LOC1 and LOC2
+#set return value - 0 if not pair, 1 if pair
 # restore registers (ra + used)
     ret
 
 
 # updateScore
-# r4 - player (or address of player score location)
-# r5 - score to add (+1/-1)
 updateScore:
+    # increment score of current player
     ret
 
 
 drawAllCards:
-    # goes through all cards and draws them at different locations
-    # if bool flipped draws back facing card, 
-    # implementation will depend on wha
-
-
-
-
+    # goes through all cards and draws them at the respective locations
+    # if bool flipped draw face of card, 
