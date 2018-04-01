@@ -9,7 +9,6 @@
 .equ charBase,  0x09000000
 .equ MAXPIXOFFSET,  0x3BE7E # 2*(319) + 1024*(239) = 245374
 .equ MAXCHAROFFSET, 0x1DCF  # 79 + 128*(59) = 7631
-
 # .global drawScreen - later when seperating into different functions
 .global _start
 
@@ -19,6 +18,7 @@ _start:
 # drawScreen:
     movia r8, pixelBase
     movia r9, BG
+
     # r10 - temp storage for x
     # r11 - temp storage for y
     movi r10, 0
@@ -35,14 +35,13 @@ _start:
     
     # load color from image
     ldh r13, 0(r9)
-    sthio r9, 0(r12)
+    sthio r13, 0(r12)
     
-    # increment location counters
-    addi r9, r9, 2 # increment file address by 2 bytes (color = 16bits)
     # check if new row
-    movi r12, 239
-    bgt r11, r12, incRow 
-    addi r10, r10, 1
+    movi r12, 319
+    bgt r10, r12, incRow 
+    addi r9, r9, 2   # increment file address by 2 bytes (color = 16bits)
+    addi r10, r10, 1 # increment x counter
     br drawBigLoop
 
     incRow: 
@@ -78,4 +77,4 @@ computeCharOffset:
 # DATA #
 .data
 # images #
-BG: .incbin "bg.bmp"
+BG: .incbin "test_bg.bin"
