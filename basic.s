@@ -127,9 +127,12 @@ GameSetUp:
 
 MainLoop:
     movi r9, MAXSCORE
+	ldw r9, 0(r9)
     movi r10, PLAYER1
+	ldw r10, 0(r10)
     beq r10, r9, gameDone #player 1 wins
     movi r10, PLAYER2
+	ldw r10, 0(r10)
     beq r10, r9, gameDone #player 2 wins
     br MainLoop
 
@@ -141,14 +144,18 @@ gameDone:
     movi r9, LOC1
     movi r10, LOC2
     movi r11, -1
-    ldw r11, 0(r9) #restore LOC2
-    ldw r11, 0(r10) #restore LOC1
+    stw r11, 0(r9) #restore LOC2
+    stw r11, 0(r10) #restore LOC1
 
     #restore score
     movi r10, PLAYER1
     movi r11, PLAYER2
     ldw r0, 0(r10)
     ldw r0, 0(r11)
+	
+	movi r10, 1
+	movi r11, CURRENTPLAYER
+	ldw r10, 0(r11)
     br WaitForStartLoop
 
 
@@ -161,9 +168,9 @@ ret
 
  Timer:
    movia r20, TIMER #load address into register
-   movia r16, r4 # load period to run timer
+   mov r16, r4 # load period to run timer
    andi  r21, r16, 0xFFFF # take lower 16 bits
-   andi  r22, r16, 0xFFFF0000 #take upper 16 bits
+   srli  r22, r16, 16 #take upper 16 bits
 
 #load period into timer
    stwio r21, 8(r20) #load LSB into periodl
@@ -171,7 +178,7 @@ ret
 
    stwio r0, (r20) #reset timer
 
-   stwio r16, 0b100
+   movi r16, 0b100
    stwio r16, 4(r20) #start the timer by turning on 3rd bit
 
    loop:
@@ -354,7 +361,7 @@ ret
 #r4 = card number
 #r2 - 1 if flipped, 0 if not
 checkIfFlipped:
-    movi r19, cards
+    movi r19, CARDS
     muli r20, r4, 8
     add r20, r20, r19
     ldw r2, 4(r20)
