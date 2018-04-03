@@ -11,6 +11,8 @@
 
 .equ JTAGUART, 0xFF201000
 .equ BUTTONS, 0xFF200050
+.equ TIMER, 0xFF202000
+
 
 .section .data
 # address of devices
@@ -47,7 +49,6 @@ NUMSELECTED:
     .word 0
 
 ### CARD VALUES AND FLIPPED BOOLEAN ###
-#think about including offset?
 CARDS:
     A:  .word 3 #value
         .word 0 #flipped
@@ -84,7 +85,7 @@ CARDS:
 
 
 # timer value : after peiod elapses player loses his/her turn?
-#.equ PERIOD, somethin
+.equ PERIODLOW, somethin
 
 
 .global _start
@@ -95,7 +96,7 @@ INIT:
     # init devices
     call initJTAGUART
     #call initTimer
-    #call displayStartScreen
+    #call drawScreen - start image
 
     #enable correct IRQ lines
     movia r10, 0b100000000
@@ -114,12 +115,15 @@ WaitForStartLoop:
     # break out of loop when triggered by button press
     
 GameSetUp:
-    # enables interrupts for GPIO (PS2 for first implementation) /TIMER
-    #call drawAllCards
 
-    # flip cards - have an image with all cards flipped? set timer for a certain amount of time
-        #timer not interrupt based
-    # flip cards back after timer
+    #call drawScreen - front of cards
+    
+    #wait for timer
+    movia r4, 0x5F5E100 #period 
+    call Timer
+    #call drawScreen - back of cards
+
+
 
 MainLoop:
     movi r9, MAXSCORE
@@ -130,7 +134,7 @@ MainLoop:
     br MainLoop
 
 gameDone:
-    #display winner
+    #call displayWinner - press button to start
     call restoreFlipped
 
     #restore LOC1 and LOC2
@@ -148,15 +152,36 @@ gameDone:
     br WaitForStartLoop
 
 
-
-
-
-
 initJTAGUART:
 movia r9, JTAGUART
 movia r10, 0b01
 stwio r10, 4(r9) #turns interrupts on device
 ret
+
+
+ Timer:
+   movia r20, TIMER #load address into register
+   movia r16, r4 # load period to run timer
+   andi  r21, r16, 0xFFFF # take lower 16 bits
+   andi  r22, r16, 0xFFFF0000 #take upper 16 bits
+
+#load period into timer
+   stwio r21, 8(r20) #load LSB into periodl
+   stwio r22, 12(r20) #load MSB into periodh
+
+   stwio r0, (r20) #reset timer
+
+   stwio r16, 0b100
+   stwio r16, 4(r20) #start the timer by turning on 3rd bit
+
+   loop:
+   ldwio r16, 0(r20) #loads value of timer into r16
+   andi r16, r16, 0b1 #if bit is 0, timer is still busy
+   beq r0, r16, loop #branches if timer is still busy
+
+DelayFinished:
+   ret
+
 ################################################################################################################
 .section .exceptions, "ax"
 IHANDLER:
@@ -206,8 +231,7 @@ IHANDLER:
         ldw r4, 0(r18) 
         movi r5, 1
         call changeFlippedValue
-
-      #  call drawAllCards # wait for timer before moving on (so it displays for a certain amount of time)
+        
         call checkIfPair
         beq r0, r2, pairNotFound
         #else pair was found
@@ -219,6 +243,10 @@ IHANDLER:
         ldw r4, 0(r18) 
         movi r5, 0
         call changeFlippedValue
+
+        #call drawAllCards
+        movia r4, 0x5F5E100 #set timer period
+        call Timer
         
         movi r18, LOC2
         ldw r4, 0(r18) 
@@ -252,9 +280,8 @@ IHANDLER:
         stw r17, 0(r20)
         
     EXIT_IH:
-   # call drawAllCards      
-    # restore registers
-
+    # call drawScreen - back of cardsdq
+    # call drawAllCards      
     ldw r9, 0(sp)
     ldw r10, 4(sp)
     ldw ea, 8(sp)  #not necessary currently - only once we add timer
@@ -324,6 +351,16 @@ changeFlippedValue:
     stw r5, 4(r20) #change flipped value to value
 ret
 
+#r4 = card number
+#r2 - 1 if flipped, 0 if not
+checkIfFlipped:
+    movi r19, cards
+    muli r20, r4, 8
+    add r20, r20, r19
+    ldw r2, 4(r20)
+ret
+
+
 restoreFlipped:
     subi sp, sp, 4
     stw ra, 0(sp)
@@ -338,14 +375,10 @@ restoreFlipped:
     addi sp, sp, 4
 ret
 
-drawAllCards: #think about having parameter that says what file to use ¿?
-ret
-
-displayStartScreen:
+drawAllCards:
 ret
 
 #r4 - address of LOC1 or LOC2
-
 updateLOC:
 movia r10, JTAGUART
 ldwio r10, 0(r10) #Load from the JTAG
@@ -422,3 +455,7 @@ convertCharacter:
 doneUpdatingLOC:
     stwio r11, 0(r4)
 ret
+
+#new updateLOC - copy in info from HEX
+#acknowledge HEXin EXIT_IH
+#HexInit
