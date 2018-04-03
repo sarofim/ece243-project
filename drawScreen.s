@@ -39,12 +39,12 @@ _start:
     
     # check if new row
     movi r12, 319
-    bgt r10, r12, incRow 
+    bgt r10, r12, incSquareRow 
     addi r9, r9, 2   # increment file address by 2 bytes (color = 16bits)
     addi r10, r10, 1 # increment x counter
     br drawBigLoop
 
-    incRow: 
+    incSquareRow: 
         addi r11, r11, 1
         movi r10, 0
         br drawBigLoop

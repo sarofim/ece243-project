@@ -1,4 +1,4 @@
-# DESCRIPTION #
+    # DESCRIPTION #
 # functions to drawScreen : bacground, cards, 
 # PIXELS : 320 x 240
 # CHARS  : 80  x 60 
@@ -7,65 +7,32 @@
 # VGA CONSTANTS #
 .equ pixelBase, 0x08000000
 .equ MAXSQUAREOFFSET, 0xEC76  # 2*(59) + 1024*(59) = 60534
-# .global drawBoard - later when seperating into different functions
+
 .global _start
 
-# reg usage #
-# .global _drawBoard
-
 _start:
-# drawBoard:
-    movi r16, 0 # current squar ecounter
-    movia r17, STARTING_OFFSETS # offsets
-    movia r18, FACEUP_IMG
-
-    drawBoardBigLoop:
-    movi r20, 15 # r20 temp register
-    beq r16, r20, drawingBoardDone # check if board done
-
-    # call function to check if flipped
-    # call CHECK_IF_FLIPPED
-    # br incrementSquare # (otherwise)
-    # branches to flipped up if true    
-    flippedUp:
-    # get starting_offset for box --> passed address = 4*(r16) + STARTING_OFFSETS
-    muli r20, r16, 4
-    # get draw image (need to figure out size) - ignoring for now
-    # get image address = sizeimg*(r16) + FACEUP_IMG
-    # img size = 8K = 8*1024 = 8192
-    # muli r21, r16, 8192
-    # using same image for now
-    movia r5, FACEDOWN_IMG
-    
-    # clear registers
-    movi r4, 0
-    # movi r5, 0
-    add r4, r20, r17 # starting offset + square offset
-    # add source of image
-    # add r5, r18, r21
-    call drawSquare
-
-    incrementSquare:
-    addi r16, r16, 1
-    br drawBoardBigLoop
-
-    drawingBoardDone:
-        br board
 
 # .global drawSquare
 # DRAW SQUARE #
 # draws 60x60 square given loc & file
 # r4 - address of image
 # r5 - starting offest (position)
-drawSquare:
+# drawSquare:
+  
     # store ra
-    subi sp, sp, 4
-    stw ra, 0(sp)
+    # subi sp, sp, 4
+    # stw ra, 0(sp)
     
     movia r8, pixelBase
-    mov r9, r4  # img 
-    mov r14, r5 # start offset
+    
+    # load offset manually
+    movia r14, s00
 
+    # test with image
+    # movia r9, 
+
+    # mov r9, r4  # img 
+    # mov r14, r5 # start offset
     # r10 - temp storage for x
     # r11 - temp storage for y
     movi r10, 0
@@ -84,14 +51,14 @@ drawSquare:
     add r12, r12, r2 # store address of pixel
     
     # load color from image
-    ldh r13, 0(r9)
-	# movia r13, 0xF81F
+    # ldh r13, 0(r9)
+	movia r13, 0xF81F
     sthio r13, 0(r12)
     
     # check if new row
     movi r12, 59
     bgt r10, r12, incRow 
-    addi r9, r9, 2   # increment file address by 2 bytes (color = 16bits)
+    # addi r9, r9, 2   # increment file address by 2 bytes (color = 16bits)
     addi r10, r10, 1 # increment x counter
     br drawSquareBigLoop
 
@@ -102,9 +69,22 @@ drawSquare:
 
     drawingSquareDone: 
         # restore ra
-        ldw ra, 0(sp)
-        addi sp, sp, 4
-        ret
+        # ldw ra, 0(sp)
+        # addi sp, sp, 4
+        # ret
+        br drawingSquareDone
+
+
+# compute pix offset
+# offset = 2*x + 1024*y
+# r4: x, r5: y
+# returns offset in r2
+computePixOffset:
+    muli r4, r4, 2
+    muli r5, r5, 1024
+    add r2, r4, r5
+    ret
+
 
 # DATA #
 .data
@@ -129,21 +109,4 @@ STARTING_OFFSETS:
 
 # images #
 # trying wit different colors rn #
-FACEUP_IMG: 
-    img0: .hword 
-    img1: 
-    img2: 
-    img3: 
-    img4:
-    img5: 
-    img6: 
-    img7: 
-    img8:
-    img9:
-    img10:
-    img11:
-    img12:
-    img13:
-    img14:
-    img15: 
-FACEDOWN_IMG: .incbin "img_bin/test_down_60x60.bin"
+# FACEDOWN_IMG: .incbin "test_down_60x60.bin"
