@@ -14,14 +14,14 @@
 # .global _drawBoard
 
 _start:
-# drawBoard:
+# drawBoard: 
     movi r16, 0 # current squar ecounter
-    movia r17, STARTING_OFFSETS # offsets
-    movia r18, FACEUP_IMG
+    movia r17, s00 # offsets
+    movia r18, img0
 
     drawBoardBigLoop:
     movi r20, 15 # r20 temp register
-    beq r16, r20, drawingBoardDone # check if board done
+    bgt r16, r20, drawingBoardDone # check if board done
 
     # call function to check if flipped
     # call CHECK_IF_FLIPPED
@@ -30,19 +30,16 @@ _start:
     flippedUp:
     # get starting_offset for box --> passed address = 4*(r16) + STARTING_OFFSETS
     muli r20, r16, 4
-    # get draw image (need to figure out size) - ignoring for now
     # get image address = sizeimg*(r16) + FACEUP_IMG
     # img size = 8K = 8*1024 = 8192
-    # muli r21, r16, 8192
-    # using same image for now
-    movia r5, FACEDOWN_IMG
+    muli r21, r16, 7200
     
     # clear registers
+    movi r5, 0
     movi r4, 0
-    # movi r5, 0
-    add r4, r20, r17 # starting offset + square offset
+    add r5, r20, r17 # starting offset + square offset
     # add source of image
-    # add r5, r18, r21
+    add r4, r18, r21
     call drawSquare
 
     incrementSquare:
@@ -50,7 +47,7 @@ _start:
     br drawBoardBigLoop
 
     drawingBoardDone:
-        br board
+        br drawingBoardDone 
 
 # .global drawSquare
 # DRAW SQUARE #
@@ -64,7 +61,8 @@ drawSquare:
     
     movia r8, pixelBase
     mov r9, r4  # img 
-    mov r14, r5 # start offset
+    # mov r14, r5 # start offset
+	ldw r14, 0(r5)
 
     # r10 - temp storage for x
     # r11 - temp storage for y
@@ -85,17 +83,17 @@ drawSquare:
     
     # load color from image
     ldh r13, 0(r9)
-	# movia r13, 0xF81F
+	# movia r13, 0xFFBE
     sthio r13, 0(r12)
     
     # check if new row
     movi r12, 59
-    bgt r10, r12, incRow 
+    bgt r10, r12, incSquareRow 
     addi r9, r9, 2   # increment file address by 2 bytes (color = 16bits)
     addi r10, r10, 1 # increment x counter
     br drawSquareBigLoop
 
-    incRow: 
+    incSquareRow: 
         addi r11, r11, 1
         movi r10, 0
         br drawSquareBigLoop
@@ -123,27 +121,26 @@ STARTING_OFFSETS:
     s10: .word 0x01DD8E # 2*(199) + 1024(119)
     s11: .word 0x01DE06 # 2*(259) + 1024(119)
     s12: .word 0x02CC9E # 2*(79) + 1024(179)
-    s13: .word 0x02CC8B # 2*(139) + 1024(179)
+    s13: .word 0x02CD16 # 2*(139) + 1024(179)
     s14: .word 0x02CD8E # 2*(199) + 1024(179)
     s15: .word 0x02CE06 # 2*(259) + 1024(179)
 
 # images #
 # trying wit different colors rn #
 FACEUP_IMG: 
-    img0: .hword 
-    img1: 
-    img2: 
-    img3: 
-    img4:
-    img5: 
-    img6: 
-    img7: 
-    img8:
-    img9:
-    img10:
-    img11:
-    img12:
-    img13:
-    img14:
-    img15: 
-FACEDOWN_IMG: .incbin "img_bin/test_down_60x60.bin"
+    img0: .incbin "img_bin/test_down_60x60.bin"
+    img1: .incbin "img_bin/test_down_60x60.bin"
+    img2: .incbin "img_bin/test_down_60x60.bin"
+    img3: .incbin "img_bin/test_down_60x60.bin"
+    img4: .incbin "img_bin/test_down_60x60.bin"
+    img5: .incbin "img_bin/test_down_60x60.bin"
+    img6: .incbin "img_bin/test_down_60x60.bin"
+    img7: .incbin "img_bin/test_down_60x60.bin"
+    img8: .incbin "img_bin/test_down_60x60.bin"
+    img9: .incbin "img_bin/test_down_60x60.bin"
+    img10: .incbin "img_bin/test_down_60x60.bin"
+    img11: .incbin "img_bin/test_down_60x60.bin"
+    img12: .incbin "img_bin/test_down_60x60.bin"
+    img13: .incbin "img_bin/test_down_60x60.bin"
+    img14: .incbin "img_bin/test_down_60x60.bin"
+    img15: .incbin "img_bin/test_down_60x60.bin"
