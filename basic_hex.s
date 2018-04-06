@@ -12,6 +12,7 @@
 .equ JTAGUART, 0xFF201000
 .equ BUTTONS, 0xFF200050
 .equ TIMER, 0xFF202000
+.equ JP1, 0xFF200060
 
 
 .section .data
@@ -85,7 +86,7 @@ CARDS:
 
 
 # timer value : after peiod elapses player loses his/her turn?
-.equ PERIODLOW, somethin
+#.equ PERIODLOW, somethin
 
 
 .global _start
@@ -95,11 +96,12 @@ _start:
 INIT:
     # init devices
     call initJTAGUART
+	call initHex
     #call initTimer
     #call drawScreen - start image
 
     #enable correct IRQ lines
-    movia r10, 0b100000000
+	movia r10, 0b100100000000
     wrctl ctl3, r10 #enable IRQ8 for JTAG
 
     #enable PIE
@@ -165,6 +167,19 @@ movia r10, 0b01
 stwio r10, 4(r9) #turns interrupts on device
 ret
 
+initHex:
+movia r9, JP1
+
+#Lower bits - rows
+#enable rows as inputs
+movia r8, 0xF0 #0 - input
+stwio r8, 4(r9) #direction register (input = 0, output = 1)
+
+#enable correct interrupt bits - COLUMNS AS INPUTS
+movia r8, 0x0F
+stwio r8, 8(r9) #interrupt register (rows trigger interrupt)
+stwio r0, 0(r9) #write 0 to all output pins
+ret
 
  Timer:
    movia r20, TIMER #load address into register
@@ -196,13 +211,15 @@ IHANDLER:
     stw r9, 0(sp)
     stw r10, 4(sp)
     stw ea, 8(sp) #not necessary currently - only once we add timer
-    wrctl ctl1, r0 #disable interrupts (set PIE to 0)
 
-    rdctl et, ctl4
-    andi et, et, 0b100000000 # check if interrupt pending from IRQ8 (ctl4:bit8)
-    movi r8, 0b100000000
-    beq et, r8, INPUT_IH 
-    br EXIT_IH 
+	#check if HEX keypad (JP1) caused interrupt
+	movi r9, JP1
+	rdctl et, ctl4
+    andi et, et, 0b100000000000 # check if interrupt pending from IRQ11
+    movi r8, 0b100000000000
+	
+    wrctl ctl0, r0 #disable interrupts
+    bne et, r8, I_EXIT #if not JP1
 
     INPUT_IH:
     #check number selected
@@ -288,13 +305,17 @@ IHANDLER:
         
     EXIT_IH:
     # call drawScreen - back of cardsdq
-    # call drawAllCards      
+    # call drawAllCards  
+	movi r9, JP1
+	movia r8, 0xFFFFFFFF
+	stw r8, 12(r9)
+    
     ldw r9, 0(sp)
     ldw r10, 4(sp)
     ldw ea, 8(sp)  #not necessary currently - only once we add timer
     addi sp, sp, 12
     movi r22, 1
-    wrctl ctl1, r22 #enable interrupts (set PIE to 1)
+    wrctl ctl0, r22 #enable interrupts (set PIE to 1)
     subi ea, ea, 4
 eret
 
@@ -387,82 +408,65 @@ ret
 
 #r4 - address of LOC1 or LOC2
 updateLOC:
-movia r10, JTAGUART
-ldwio r10, 0(r10) #Load from the JTAG
-andi  r10, r10, 0x00FF # Data read is now in r10
+movi r9, JP1
+    #read in rows (inputs)
+    ldwio r10, 0(r9) #r10 holds values
+    andi  r10,r10,0xf # Mask out all but last 4 bits  - row values (0 = pressed)
 
-convertCharacter:
-    movi r11, '0'
-    beq r10, r11, Zeroto0
-    movi r11, '1'
-    beq r10, r11, Oneto1
-    movi r11, '2'
-    beq r10, r11, Twoto2
-    movi r11, '3'
-    beq r10, r11, Threeto3  
-    movi r11, '4'
-    beq r10, r11, Fourto4
-    movi r11, '5'
-    beq r10, r11, Fiveto5
-    movi r11, '6'
-    beq r10, r11, Sixto6
-    movi r11, '7'
-    beq r10, r11, Sevento7
-    movi r11, '8'
-    beq r10, r11, Eightto8
-    movi r11, '9'
-    beq r10, r11, Nineto9
-    movi r11, 'A'
-    beq r10, r11, Ato10
-    movi r11, 'B'
-    beq r10, r11, Bto11
-    movi r11, 'C'
-    beq r10, r11, Cto12
-    movi r11, 'D'
-    beq r10, r11, Dto13
-    movi r11, 'E'
-    beq r10, r11, Eto14
-    movi r11, 'F'
-    beq r10, r11, Fto15
-    br doneUpdatingLOC
+    nor r10, r0, r10 #equivalent of ~r4 - 1 = pressed
 
-    Zeroto0: movi r11, 0
-        br doneUpdatingLOC
-    Oneto1: movi r11, 1
-        br doneUpdatingLOC
-    Twoto2: movi r11, 2
-        br doneUpdatingLOC
-    Threeto3: movi r11, 3
-        br doneUpdatingLOC
-    Fourto4: movi r11, 4
-        br doneUpdatingLOC
-    Fiveto5: movi r11, 5
-        br doneUpdatingLOC
-    Sixto6: movi r11, 6
-        br doneUpdatingLOC
-    Sevento7: movi r11, 7
-        br doneUpdatingLOC
-    Eightto8: movi r11, 8
-        br doneUpdatingLOC
-    Nineto9: movi r11, 9
-        br doneUpdatingLOC
-    Ato10: movi r11, 10
-        br doneUpdatingLOC
-    Bto11: movi r11, 11
-        br doneUpdatingLOC  
-    Cto12: movi r11, 12
-        br doneUpdatingLOC
-    Dto13: movi r11, 13
-        br doneUpdatingLOC  
-    Eto14: movi r11, 14
-        br doneUpdatingLOC  
-    Fto15: movi r11, 15
-        br doneUpdatingLOC
+    #reconfigure so columns are inputs - bits 4-7 are inputs
+	movia r8, 0x0F #0 - input
+	stwio r8, 4(r9) #direction register (input = 0, output = 1) 
+	stwio r0, 0(r9) #write 0 to all output pins
+    
+    ldwio r11, 0(r9) #r10 holds values
+	andi  r11,r11,0xf0 # Mask out all but inputs (4-7)
+	srli r11, r11, 4 #4 bits right
 
-doneUpdatingLOC:
-    stwio r11, 0(r4)
+    nor r11, r0, r11 #equivalent of ~r4 - 1 = pressed 
+
+    #r11 holds columns, r10 holds rows
+
+    movi r12, 0b1000
+    beq, r10, r12, row0
+    movi r12, 0b0100
+    beq, r10, r12, row1
+    movi r12, 0b0010
+    beq, r10, r12, row2
+    movi r12, 0b0001
+    beq, r10, r12, row3
+    findColumn:
+    movi r12, 0b1000
+    beq, r11, r12, col3
+    movi r12, 0b0100
+    beq, r11, r12, col2
+    movi r12, 0b0010
+    beq, r11, r12, col1
+    movi r12, 0b0001
+    beq, r11, r12, col0
+    br computeNumber
+
+    row0: movi r10, 0
+    br findColumn
+    row1: movi r10, 1
+    br findColumn
+    row2: movi r10, 2
+    br findColumn
+    row3:  movi r10, 3
+    br findColumn
+
+    col0: movi r11, 0
+    br computeNumber
+    col1:  movi r11, 1
+    br computeNumber
+    col2: movi r11, 2
+    br computeNumber
+    col3: movi r11, 3
+    br computeNumber
+
+computeNumber:
+	muli r10, r10, 4
+	addi r14, r11, r10
+    stwio r14, 0(r4)
 ret
-
-#new updateLOC - copy in info from HEX
-#acknowledge HEXin EXIT_IH
-#HexInit
