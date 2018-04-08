@@ -11,6 +11,7 @@
 .equ MAXPIXOFFSET,  0x3BE7E # 2*(319) + 1024*(239) = 245374
 .equ MAXCHAROFFSET, 0x1DCF  # 79 + 128*(59) = 7631
 .equ MAXSQUAREOFFSET, 0xEC76  # 2*(59) + 1024*(59) = 60534
+.equ JP1, 0xFF200060
 
 
 .equ JTAGUART, 0xFF201000
@@ -25,14 +26,13 @@
 _start:
 INIT:
     # init devices
-    call initJTAGUART
+	call initHex
     #call initTimer
     movia r4, START
     call drawScreen #start image
 
-    #enable correct IRQ lines
-    movia r10, 0b100000000
-    wrctl ctl3, r10 #enable IRQ8 for JTAG
+	movia r10, 0b100000000000
+    wrctl ctl3, r10 #enable IRQ11 for JP1 Hex Keypad
 
     #enable PIE
     movia r10, 1
@@ -52,7 +52,7 @@ GameSetUp:
     
     #wait for timer
     movia r4, 0x1DCD6500 #period 
-    call Timer
+    #call Timer
     movia r4, ALL_DOWN
     call drawScreen #back of cards
 
@@ -91,13 +91,15 @@ gameDone:
 	ldw r10, 0(r11)
     br WaitForStartLoop
 
-
-initJTAGUART:
-movia r9, JTAGUART
-movia r10, 0b01
-stwio r10, 4(r9) #turns interrupts on device
+initHex:
+  movia r9,JP1
+  movia r10,0xf0
+  stwio r10,4(r9)  # Set directions - rows to input, columns to output 
+  stwio r0,(r9)   # Drive all output pins low 
+  #hex interrupt init
+  movia r8, 0x0F
+  stwio r8, 8(r9) #interrupt register (rows trigger interrupt)
 ret
-
 
  Timer:
    movia r20, TIMER #load address into register
@@ -409,14 +411,17 @@ IHANDLER:
     stw r10, 4(sp)
     stw ea, 8(sp) #not necessary currently - only once we add timer
     wrctl ctl0, r0 #disable interrupts (set PIE to 0)
-
     rdctl et, ctl4
-    andi et, et, 0b100000000 # check if interrupt pending from IRQ8 (ctl4:bit8)
-    movi r8, 0b100000000
+    andi et, et, 0b100000000000 # check if interrupt pending from IRQ11 (ctl4:bit11)
+    movi r8, 0b100000000000
+
     beq et, r8, INPUT_IH 
     br EXIT_IH 
 
+
     INPUT_IH:
+	call updateLOC #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+	mov r7, r2 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     #check number selected
     movi r19, CARDS
     movi r16, NUMSELECTED
@@ -427,8 +432,8 @@ IHANDLER:
     firstSelected:
         #update LOC1
         movi r4, LOC1
-        call updateLOC
-
+        #call updateLOC #!!!!!!!!!!!!!!!!!!!!!!!!!!
+		stw r7, 0(r4) #!!!!!!!!!!!!!!!!!!!!!!!!!
         #change flipped value of selected card
         movi r18, LOC1
         ldw r4, 0(r18) 
@@ -443,7 +448,8 @@ IHANDLER:
     secondSelected:
         #update LOC2
         movi r4, LOC2
-        call updateLOC
+        #call updateLOC #!!!!!!!!!!!!!!!!!!!!!!!!!!
+		stw r7, 0(r4) #!!!!!!!!!!!!!!!!!!!!!!!!!
 
         #change flipped value (boolean) of selected card
         movi r18, LOC2
@@ -483,6 +489,7 @@ IHANDLER:
         stw r17, 0(r18) #restore LOC1
 
         #restore NUMSELECTED
+		movia r16, NUMSELECTED
         movi r17, 0
         stw r17, 0(r16)
 
@@ -500,10 +507,14 @@ IHANDLER:
         movi r17, 2
         stw r17, 0(r20)
         
-    EXIT_IH:
+EXIT_IH:
 	movi r4, ALL_DOWN
     call drawScreen #back of cardsdq
-    call drawBoard      
+    call drawBoard
+	movia r9, JP1
+	movia r8, 0xFFFFFFFF 	#acknowledge interrupt
+    stw r8, 12(r9)
+      
     ldw r9, 0(sp)
     ldw r10, 4(sp)
     ldw ea, 8(sp)  #not necessary currently - only once we add timer
@@ -511,6 +522,11 @@ IHANDLER:
     movi r22, 1
     wrctl ctl1, r22 #enable interrupts (set PIE to 1)
     subi ea, ea, 4
+	movi r10, 1
+	wrctl ctl0, r10 #enable interrupts globally on processor
+
+
+
 eret
 
 checkIfPair:
@@ -595,78 +611,89 @@ ret
 
 #r4 - address of LOC1 or LOC2
 updateLOC:
-movia r10, JTAGUART
-ldwio r10, 0(r10) #Load from the JTAG
-andi  r10, r10, 0x00FF # Data read is now in r10
+  subi sp, sp, 4
+  stw ra, 0(sp)
+  movia r9,JP1
 
-convertCharacter:
-    movi r11, '0'
-    beq r10, r11, Zeroto0
-    movi r11, '1'
-    beq r10, r11, Oneto1
-    movi r11, '2'
-    beq r10, r11, Twoto2
-    movi r11, '3'
-    beq r10, r11, Threeto3  
-    movi r11, '4'
-    beq r10, r11, Fourto4
-    movi r11, '5'
-    beq r10, r11, Fiveto5
-    movi r11, '6'
-    beq r10, r11, Sixto6
-    movi r11, '7'
-    beq r10, r11, Sevento7
-    movi r11, '8'
-    beq r10, r11, Eightto8
-    movi r11, '9'
-    beq r10, r11, Nineto9
-    movi r11, 'a'
-    beq r10, r11, Ato10
-    movi r11, 'b'
-    beq r10, r11, Bto11
-    movi r11, 'c'
-    beq r10, r11, Cto12
-    movi r11, 'd'
-    beq r10, r11, Dto13
-    movi r11, 'e'
-    beq r10, r11, Eto14
-    movi r11, 'f'
-    beq r10, r11, Fto15
-    br doneUpdatingLOC
+	#debouncing delay
+  	movia r4, 0xF4240
+  	call Timer
 
-    Zeroto0: movi r11, 0
-        br doneUpdatingLOC
-    Oneto1: movi r11, 1
-        br doneUpdatingLOC
-    Twoto2: movi r11, 2
-        br doneUpdatingLOC
-    Threeto3: movi r11, 3
-        br doneUpdatingLOC
-    Fourto4: movi r11, 4
-        br doneUpdatingLOC
-    Fiveto5: movi r11, 5
-        br doneUpdatingLOC
-    Sixto6: movi r11, 6
-        br doneUpdatingLOC
-    Sevento7: movi r11, 7
-        br doneUpdatingLOC
-    Eightto8: movi r11, 8
-        br doneUpdatingLOC
-    Nineto9: movi r11, 9
-        br doneUpdatingLOC
-    Ato10: movi r11, 10
-        br doneUpdatingLOC
-    Bto11: movi r11, 11
-        br doneUpdatingLOC  
-    Cto12: movi r11, 12
-        br doneUpdatingLOC
-    Dto13: movi r11, 13
-        br doneUpdatingLOC  
-    Eto14: movi r11, 14
-        br doneUpdatingLOC  
-    Fto15: movi r11, 15
-        br doneUpdatingLOC
+  ldwio r10,0(r9)  # Read port data 
+  andi  r10,r10,0xf # Mask out all but last 4 bits 
+  #movi r5, 0xf
+  #beq r10, r5, loop
 
-doneUpdatingLOC:
-    stwio r11, 0(r4)
+	movia r15, 0xFFFFFFF0
+    nor r10, r15, r10 #invert value
+
+#re-initalize with columns as inputs
+  movia r11,0x0f
+  stwio r11,4(r9)  # Set directions - rows to output, columns to input 
+  stwio r0,(r9)   # Drive all output pins low 
+  movia r8, 0x0F #??????
+  stwio r8, 8(r9) #interrupt register (columns trigger interrupt) ??????????????????
+
+   ldwio r11, 0(r9) #r11 holds values
+	andi  r11,r11,0xf0 # Mask out all but inputs (4-7)
+	srli r11, r11, 4 #4 bits right
+  	#movi r5, 0xf
+	#beq r11, r5, loop
+	movia r15, 0xFFFFFFF0
+    nor r11, r15, r11 
+    #r11 holds columns, r10 holds rows
+
+	   #r11 holds columns, r10 holds rows
+    movi r12, 0b1000
+    beq r10, r12, row3
+    movi r12, 0b0100
+    beq r10, r12, row2
+    movi r12, 0b0010
+    beq r10, r12, row1
+    movi r12, 0b0001
+    beq r10, r12, row0
+    findColumn:
+    movi r12, 0b1000
+    beq r11, r12, col3
+    movi r12, 0b0100
+    beq r11, r12, col2
+    movi r12, 0b0010
+    beq r11, r12, col1
+    movi r12, 0b0001
+    beq r11, r12, col0
+    br computeNumber
+
+    row0: movi r10, 0
+    br findColumn
+    row1: movi r10, 1
+    br findColumn
+    row2: movi r10, 2
+    br findColumn
+    row3:  movi r10, 3
+    br findColumn
+
+    col0: movi r11, 0
+    br computeNumber
+    col1:  movi r11, 1
+    br computeNumber
+    col2: movi r11, 2
+    br computeNumber
+    col3: movi r11, 3
+    br computeNumber
+
+computeNumber:
+	muli r10, r10, 4
+	add r14, r11, r10 #r14 holds number
+	mov r2, r14
+doneUpdatingLOC: 
+    #stwio r14, 0(r4)
+	#debouncing delay
+  	movia r4, 0x1DCD6500
+  	call Timer
+#reset to original settings
+  movia r10,0xf0
+  stwio r10,4(r9)  # Set directions - rows to input, columns to output 
+  stwio r0,(r9)   # Drive all output pins low
+ldw ra, 0(sp)
+addi sp, sp, 4
 ret
