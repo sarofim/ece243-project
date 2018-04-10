@@ -17,6 +17,7 @@
 .equ JTAGUART, 0xFF201000
 .equ BUTTONS, 0xFF200050
 .equ TIMER, 0xFF202000
+.equ TIMER2, 0xFF202020
 .equ pixelBase, 0x08000000
 .equ charBase,  0x09000000
 
@@ -27,17 +28,18 @@ _start:
 INIT:
     # init devices
 	call initHex
+    call initScoreTimer
     #call initTimer
     movia r4, START
     call drawScreen #start image
 
-	movia r10, 0b100000000000
-    wrctl ctl3, r10 #enable IRQ11 for JP1 Hex Keypad
+    # enable IRQ line for shits
+	movia r10, 0b100000000100
+    wrctl ctl3, r10 #enable IRQ11 for JP1 Hex Keypad & TIMER2
 
     #enable PIE
     movia r10, 1
     wrctl ctl0, r10 #enable interrupts globally on processor
-
 
 
 WaitForStartLoop:
@@ -53,21 +55,16 @@ GameSetUp:
     #wait for timer
     movia r4, 0x1DCD6500 #period 
     #call Timer
-    movia r4, ALL_DOWN
+    movia r4, ALL_DOWN_P1
     call drawScreen #back of cards
 
 
 
 MainLoop:
-    movia r9, MAXSCORE
+    movi r10, 8 # max number of pairs 
+    movia r9, NUMPAIRS
 	ldw r9, 0(r9)
-    movia r10, PLAYER1
-	ldw r10, 0(r10)
-    beq r10, r9, gameDone #player 1 wins
-    movia r10, PLAYER2
-	ldw r10, 0(r10)
-    beq r10, r9, gameDone #player 2 wins
-    br MainLoop
+    beq r9, r10, gameDone # max num pairs selected - Game done
 
 gameDone:
     #call displayWinner - press button to start
@@ -124,7 +121,35 @@ ret
 DelayFinished:
    ret
 
+initScoreTimer:
+    movia r20, TIMER2
+    movia r16, 1000000000 # mov period - 10s for now
+    andi  r21, r16, 0xFFFF # take lower 16 bits
+    srli  r22, r16, 16 # take upper 16 bits
+    # load period into timer
+    stwio r21, 8(r20) #load LSB into periodl
+    stwio r22, 12(r20) #load MSB into periodh
 
+    # write 0001 to control to initialize counter with interupts and not continous
+    stwio r0, (r20) # reset timer
+    movi r16, 0b0001
+    stwio r16, 4(r20)
+    ret
+
+startScoreTimer:
+    movia r20, TIMER2
+    stwio r0, (r20)
+    movi r16, 0b0101
+    stwio r16, 4(r20)
+    ret
+
+stopScoreTimer:
+    movia r20, TIMER2 
+    stwio r0, 16(r20) # take snapshot of current timer value
+    movi r16, 0b1001 # stop timer
+    stwio r16, 4(r20)
+    stwio r0, (r20) # reset timer 
+    ret
 
 #######################################################################
 #display stuff
@@ -169,6 +194,26 @@ drawScreen:
 	addi sp, sp, 4
         ret
 
+displayWinner:
+    subi sp, sp, 4
+	stw ra, 0(sp)
+
+    movia r18, PLAYER1
+    movia r19, PLAYER2
+    ldw r18, 0(r18)
+    ldw r19, 0(r19)
+    bgt r19, r18, player2Won
+    movia r4, PLAYER1WINNER
+    br drawEndScreen
+    
+    player2Won: 
+    movia r4, PLAYER2WINNER
+
+    drawEndScreen:
+    call drawScreen
+    ldw ra, 0(sp)
+    addi sp, sp, 4
+ret
 
 # compute pix offset
 # offset = 2*x + 1024*y
@@ -188,6 +233,7 @@ computeCharOffset:
     muli r5, r5, 128
     add r2, r4, r5
     ret
+
 drawBoard:
 	subi sp, sp, 4
 	stw ra, 0(sp) 
@@ -300,9 +346,6 @@ drawSquare:
 # images
 # audio samples
 
-### MAX POSSIBLE SCORE ##
-MAXSCORE: .word 8
-
 ### SCORES ###
 PLAYER1: 
     .word 0
@@ -322,6 +365,14 @@ LOC2:
 ### NUMBER OF SELECTED CARDS ###
 NUMSELECTED:
     .word 0
+
+### NUMBER OF PAIRS SELECTED #####
+NUMPAIRS:
+    .word 0
+
+##### SCORE STATE ########
+SCORESTATE:
+    .word -1    
 
 ### CARD VALUES AND FLIPPED BOOLEAN ###
 CARDS:
@@ -377,31 +428,33 @@ STARTING_OFFSETS:
     s14: .word 0x02CD8E # 2*(199) + 1024(179)
     s15: .word 0x02CE06 # 2*(259) + 1024(179)
 
-ALL_DOWN: .incbin "img_bin/test_alldown.bin"
+ALL_DOWN_P1: .incbin "img_bin/alldown_p1.bin"
+ALL_DOWN_P2: .incbin "img_bin/alldown_p2.bin"
 
-ALL_UP: .incbin "img_bin/test_allup.bin"
+ALL_UP: .incbin "img_bin/allup.bin"
 
-BG: .incbin "img_bin/test_bg.bin"
+START: .incbin "img_bin/start.bin"
 
-START: .incbin "img_bin/test_start.bin"
+PLAYER1WINNER: .incbin "img_bin/p1win.bin"
+PLAYER2WINNER: .incbin "img_bin/p2win.bin"
 
 FACEUP_IMG: 
-    img0: .incbin "img_bin/test_flipped_60x60.bin"
-    img1: .incbin "img_bin/test_flipped_60x60.bin"
-    img2: .incbin "img_bin/test_flipped_60x60.bin"
-    img3: .incbin "img_bin/test_flipped_60x60.bin"
-    img4: .incbin "img_bin/test_flipped_60x60.bin"
-    img5: .incbin "img_bin/test_flipped_60x60.bin"
-    img6: .incbin "img_bin/test_flipped_60x60.bin"
-    img7: .incbin "img_bin/test_flipped_60x60.bin"
-    img8: .incbin "img_bin/test_flipped_60x60.bin"
-    img9: .incbin "img_bin/test_flipped_60x60.bin"
-    img10: .incbin "img_bin/test_flipped_60x60.bin"
-    img11: .incbin "img_bin/test_flipped_60x60.bin"
-    img12: .incbin "img_bin/test_flipped_60x60.bin"
-    img13: .incbin "img_bin/test_flipped_60x60.bin"
-    img14: .incbin "img_bin/test_flipped_60x60.bin"
-    img15: .incbin "img_bin/test_flipped_60x60.bin"
+    img0: .incbin "img_bin/card_bjt.bin"
+    img1: .incbin "img_bin/card_cap.bin"
+    img2: .incbin "img_bin/card_diode.bin"
+    img3: .incbin "img_bin/card_ind.bin"
+    img4: .incbin "img_bin/card_diode.bin"
+    img5: .incbin "img_bin/card_ind.bin"
+    img6: .incbin "img_bin/card_opamp.bin"
+    img7: .incbin "img_bin/card_power.bin"
+    img8: .incbin "img_bin/card_mos.bin"
+    img9: .incbin "img_bin/card_cap.bin"
+    img10: .incbin "img_bin/card_bjt.bin"
+    img11: .incbin "img_bin/card_res.bin"
+    img12: .incbin "img_bin/card_res.bin"
+    img13: .incbin "img_bin/card_mos.bin"
+    img14: .incbin "img_bin/card_power.bin"
+    img15: .incbin "img_bin/card_opamp.bin"
 
 ################################################################################################################
 .section .exceptions, "ax"
@@ -412,12 +465,22 @@ IHANDLER:
     stw ea, 8(sp) #not necessary currently - only once we add timer
     wrctl ctl0, r0 #disable interrupts (set PIE to 0)
     rdctl et, ctl4
-    andi et, et, 0b100000000000 # check if interrupt pending from IRQ11 (ctl4:bit11)
+    andi et, et, 0b100000000100 # check if interrupt pending from IRQ11 (ctl4:bit11)
+    movi r8, 0b000000000100
+    beq et, r8, TIMER2_IH 
     movi r8, 0b100000000000
 
     beq et, r8, INPUT_IH 
     br EXIT_IH 
 
+    TIMER2_IH:
+    movia r20, TIMER2
+    stwio r0, 0(r20) # acknowlege interupt 
+    movia r20, SCORESTATE
+    movi r21, 3
+    stw r21, (r20) # set score state to timeout
+    call updateScore
+    br prepareNextTurn
 
     INPUT_IH:
 	call updateLOC #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -446,6 +509,8 @@ IHANDLER:
         br EXIT_IH
 
     secondSelected:
+        call stopScoreTimer
+        
         #update LOC2
         movi r4, LOC2
         #call updateLOC #!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -460,11 +525,28 @@ IHANDLER:
         call checkIfPair
         beq r0, r2, pairNotFound
         #else pair was found
+        call determineScoreState
         call updateScore
         br prepareNextTurn
 
         pairNotFound:		
-		movi r4, ALL_DOWN
+		        # set scorestate to 4 - not found
+        movia r20, SCORESTATE
+        movi r21, 4
+        ldw r21, (r20)
+
+		# figure out who's turn it is
+        movia r20, CURRENTPLAYER
+        ldw r20, 0(r20)
+        movi r21, 1
+        beq r20, r21, drawPlayer1Screen
+        movia r4, ALL_DOWN_P2
+        br actuallyDrawTings
+
+        drawPlayer1Screen:
+        movia r4, ALL_DOWN_P1
+        
+        actuallyDrawTings: 
     	call drawScreen #back of cardsdq
     	call drawBoard 
         movia r4, 0x1DCD6500 #set timer period
@@ -493,6 +575,7 @@ IHANDLER:
         movi r17, 0
         stw r17, 0(r16)
 
+        call startScoreTimer 
         #update current and previous player
         movi r17, 1
         movi r20, CURRENTPLAYER
@@ -508,6 +591,18 @@ IHANDLER:
         stw r17, 0(r20)
         
 EXIT_IH:
+	# figure out who's turn it is
+    movia r20, CURRENTPLAYER
+    ldw r20, 0(r20)
+    movi r21, 1
+    beq r20, r21, drawPlayer1Screen2
+    movia r4, ALL_DOWN_P2
+    br actuallyDrawTings2
+
+    drawPlayer1Screen2:
+    movia r4, ALL_DOWN_P1
+    
+    actuallyDrawTings2: 
 	movi r4, ALL_DOWN
     call drawScreen #back of cardsdq
     call drawBoard
@@ -551,14 +646,23 @@ checkIfPair:
     br doneChecking
 
 foundPair:
+    # increment number of found pairs
+    movia r20, NUMPAIRS
+    ldw r21, 0(r20)
+    addi r21, r21, 1
+    stw r21, 0(r20)
+
     movi r2, 1
 
 doneChecking:
     ret
 
 
-# updateScore - increment by 1
+# updateScore - increment by computeScoreAmount return value
 updateScore:
+    subi sp, sp, 4
+    stw ra, 0(sp)
+
     movi r8, CURRENTPLAYER
     ldw r8, 0(r8)
     movi r10, 1
@@ -572,8 +676,14 @@ incP1Score:
 
 doneScore:      
     ldw r11, 0(r9)
-    addi r11, r11, 1
+    beq r11, r0, exitScoreUpdate # cap score at 0
+    call computeScoreAmount
+    addi r11, r11, r2
     stw r11, 0(r9)
+
+    exitScoreUpdate:
+    ldw ra, 0(sp)
+    addi sp, sp, 4
 ret
 
 #r4 - card number
@@ -703,3 +813,71 @@ doneUpdatingLOC:
 ldw ra, 0(sp)
 addi sp, sp, 4
 ret
+
+# determines score state and stores it in memory (SCORESTATE)
+# states:
+# 0 - >= 8 sec 
+# 1 - >= 5 sec
+# 2 - otherwise
+determineScoreState:
+    movia r20, TIMER2  
+    movia r22, SCORESTATE
+    ldwio r19, 16(r20)  # Read snapshot bits 0..15 
+    ldwio r21, 20(r20)  # Read snapshot bits 16...31 
+    slli  r21,r19,16	# Shift left logically  
+    movia r20, 800000000 # >=8s
+    bge r21, r20, scoreState0
+    movia r20, 500000000 # >=5s
+    bge r21, r20, scoreState1
+    br scoreState2      # default
+
+    scoreState0:
+        movi r20, 0
+        stw r20, (r22)
+        ret
+    scoreState1:
+        movi r20, 1
+        stw r20, (r22)
+        ret
+    scoreState2:
+        movi r20, 2
+        stw r20, (r22)
+        ret
+
+# returns signed value to increment score 
+# r2 - score
+# states:
+# 0 - +3
+# 1 - +2
+# 2 - +1 
+# 3 - timeout -2
+# 4 - wrong -1
+computeScoreAmount:
+    movia r21, SCORESTATE
+    ldw r21, 0(r21)
+
+    beq r21, r0, scoreAmount0
+    movi r20, 1
+    beq r21, r20, scoreAmount1
+    movi r20, 2
+    beq r21, r20, scoreAmount2
+    movi r20, 3
+    beq r21, r20, scoreAmount3
+    movi r20, 4
+    beq r21, r20, scoreAmount4 
+    
+    scoreAmount0:
+        movi r2, 3
+        ret
+    scoreAmount1:
+        movi r2, 2
+        ret
+    scoreAmount2:
+        movi r3, 1
+        ret
+    scoreAmount3:
+        movi r2, -2
+        ret
+    scoreAmount4:
+        movi r2, -1
+        ret
