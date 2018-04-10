@@ -603,7 +603,6 @@ EXIT_IH:
     movia r4, ALL_DOWN_P1
     
     actuallyDrawTings2: 
-	movi r4, ALL_DOWN
     call drawScreen #back of cardsdq
     call drawBoard
 	movia r9, JP1
@@ -678,7 +677,7 @@ doneScore:
     ldw r11, 0(r9)
     beq r11, r0, exitScoreUpdate # cap score at 0
     call computeScoreAmount
-    addi r11, r11, r2
+    add r11, r11, r2
     stw r11, 0(r9)
 
     exitScoreUpdate:
