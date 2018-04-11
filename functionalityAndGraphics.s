@@ -742,7 +742,7 @@ updateLOC:
   stwio r0,(r9)   # Drive all output pins low 
   #movia r8, 0x0F 
   #stwio r8, 8(r9) #interrupt register (columns trigger interrupt) 
-
+  
 	#debouncing delay
   	movia r4, 0xF4240
   	call Timer
@@ -807,8 +807,10 @@ doneUpdatingLOC:
   movia r10,0xf0
   stwio r10,4(r9)  # Set directions - rows to input, columns to output 
   stwio r0,(r9)   # Drive all output pins low
+
   #movia r8, 0xf0 
   #stwio r8, 8(r9) #interrupt register (columns trigger interrupt) 
+
 ldw ra, 0(sp)
 addi sp, sp, 4
 ret
