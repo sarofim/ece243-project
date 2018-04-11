@@ -11,6 +11,8 @@
 .equ MAXPIXOFFSET,  0x3BE7E # 2*(319) + 1024*(239) = 245374
 .equ MAXCHAROFFSET, 0x1DCF  # 79 + 128*(59) = 7631
 .equ MAXSQUAREOFFSET, 0xEC76  # 2*(59) + 1024*(59) = 60534
+.equ JP1, 0xFF200060
+
 
 .equ JTAGUART, 0xFF201000
 .equ BUTTONS, 0xFF200050
@@ -25,18 +27,19 @@
 _start:
 INIT:
     # init devices
-    call initJTAGUART
-    #call initTimer
+	call initHex
+    call initScoreTimer
     movia r4, START
     call drawScreen #start image
 
-    #enable correct IRQ lines
-    movia r10, 0b100000100
-    wrctl ctl3, r10 #enable IRQ8 for JTAG
+    # enable IRQ line for shits
+	movia r10, 0b100000000100
+    wrctl ctl3, r10 #enable IRQ11 for JP1 Hex Keypad & TIMER2
 
     #enable PIE
     movia r10, 1
     wrctl ctl0, r10 #enable interrupts globally on processor
+
 
 WaitForStartLoop:
     movia r9, BUTTONS
@@ -45,6 +48,9 @@ WaitForStartLoop:
     # break out of loop when triggered by button press
     
 GameSetUp:
+    #enable PIE
+    movia r10, 1
+    wrctl ctl0, r10 #enable interrupts globally on processor
     movia r4, ALL_UP
     call drawScreen #front of cards
     
@@ -54,17 +60,22 @@ GameSetUp:
     movia r4, ALL_DOWN_P1
     call drawScreen #back of cards
 
+
+
 MainLoop:
     movi r10, 8 # max number of pairs 
     movia r9, NUMPAIRS
 	ldw r9, 0(r9)
     beq r9, r10, gameDone # max num pairs selected - Game done
-    br MainLoop
+	bgt r9, r10, gameDone
+	br MainLoop
 
 gameDone:
-    #call displayWinner - press button to start
-    call restoreFlipped
+	    #disable PIE
+    wrctl ctl0, r0 #enable interrupts globally on processor
 
+    call displayWinner
+    call restoreFlipped
     #restore LOC1 and LOC2
     movia r9, LOC1
     movia r10, LOC2
@@ -72,6 +83,15 @@ gameDone:
     stw r11, 0(r9) #restore LOC2
     stw r11, 0(r10) #restore LOC1
 
+	#restore NUMPAIRS
+	movia r9, NUMPAIRS
+	stw r0, 0(r9)
+
+	#restore SCORESTATE
+	movi r9, -1
+	movia r11, SCORESTATE
+	stw r9, 0(r11)
+	
     #restore score
     movia r10, PLAYER1
     movia r11, PLAYER2
@@ -83,13 +103,15 @@ gameDone:
 	ldw r10, 0(r11)
     br WaitForStartLoop
 
-
-initJTAGUART:
-movia r9, JTAGUART
-movia r10, 0b01
-stwio r10, 4(r9) #turns interrupts on device
+initHex:
+  movia r9,JP1
+  movia r10,0xf0
+  stwio r10,4(r9)  # Set directions - rows to input, columns to output 
+  stwio r0,(r9)   # Drive all output pins low 
+  #hex interrupt init
+  movia r8, 0x0F
+  stwio r8, 8(r9) #interrupt register (rows trigger interrupt)
 ret
-
 
  Timer:
    movia r20, TIMER #load address into register
@@ -114,10 +136,9 @@ ret
 DelayFinished:
    ret
 
-
 initScoreTimer:
     movia r20, TIMER2
-    movia r16, 1000000000 # mov period - 10s for now
+    movia r16, 2000000000 # mov period - 10s for now
     andi  r21, r16, 0xFFFF # take lower 16 bits
     srli  r22, r16, 16 # take upper 16 bits
     # load period into timer
@@ -126,21 +147,21 @@ initScoreTimer:
 
     # write 0001 to control to initialize counter with interupts and not continous
     stwio r0, (r20) # reset timer
-    movi r16, 0b0001
+    movi r16, 0b0000
     stwio r16, 4(r20)
     ret
 
 startScoreTimer:
     movia r20, TIMER2
     stwio r0, (r20)
-    movi r16, 0b0101
+    movi r16, 0b0100
     stwio r16, 4(r20)
     ret
 
 stopScoreTimer:
     movia r20, TIMER2 
     stwio r0, 16(r20) # take snapshot of current timer value
-    movi r16, 0b0101 # stop timer
+    movi r16, 0b1000 # stop timer
     stwio r16, 4(r20)
     stwio r0, (r20) # reset timer 
     ret
@@ -185,9 +206,8 @@ drawScreen:
 
     drawingDone: 
 		ldw ra, 0(sp)
-	    addi sp, sp, 4
+	addi sp, sp, 4
         ret
-
 
 displayWinner:
     subi sp, sp, 4
@@ -209,6 +229,7 @@ displayWinner:
     ldw ra, 0(sp)
     addi sp, sp, 4
 ret
+
 # compute pix offset
 # offset = 2*x + 1024*y
 # r4: x, r5: y
@@ -231,7 +252,7 @@ computeCharOffset:
 drawBoard:
 	subi sp, sp, 4
 	stw ra, 0(sp) 
-    movi r16, 0 # cb b hurrent squar ecounter
+    movi r16, 0 # current squar ecounter
     movia r17, s00 # offsets
     movia r18, img0
 
@@ -420,7 +441,7 @@ STARTING_OFFSETS:
     s12: .word 0x02CC9E # 2*(79) + 1024(179)
     s13: .word 0x02CD16 # 2*(139) + 1024(179)
     s14: .word 0x02CD8E # 2*(199) + 1024(179)
-    s15: .word 0x02CE06 # 2*(259) + 1024(179)    
+    s15: .word 0x02CE06 # 2*(259) + 1024(179)
 
 ALL_DOWN_P1: .incbin "img_bin/alldown_p1.bin"
 ALL_DOWN_P2: .incbin "img_bin/alldown_p2.bin"
@@ -458,25 +479,15 @@ IHANDLER:
     stw r10, 4(sp)
     stw ea, 8(sp) #not necessary currently - only once we add timer
     wrctl ctl0, r0 #disable interrupts (set PIE to 0)
-
     rdctl et, ctl4
-    andi et, et, 0b100000100 # check if interrupt pending from IRQ8 & IRQ2 (ctl4:bit8/2)
-    movi r8, 0b000000100
-    beq et, r8, TIMER2_IH 
-    movi r8, 0b100000000
+    andi et, et, 0b100000000000 # check if interrupt pending from IRQ11 (ctl4:bit11)
+    movi r8, 0b100000000000
     beq et, r8, INPUT_IH 
     br EXIT_IH 
 
-    TIMER2_IH:
-    movia r20, TIMER2
-    stwio r0, 0(r20) # acknowlege interupt 
-    movia r20, SCORESTATE
-    movi r21, 3
-    stw r21, (r20) # set score state to timeout
-    call updateScore
-    br prepareNextTurn
-
     INPUT_IH:
+	call updateLOC #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+	mov r7, r2 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     #check number selected
     movi r19, CARDS
     movi r16, NUMSELECTED
@@ -487,8 +498,8 @@ IHANDLER:
     firstSelected:
         #update LOC1
         movi r4, LOC1
-        call updateLOC
-
+        #call updateLOC #!!!!!!!!!!!!!!!!!!!!!!!!!!
+		stw r7, 0(r4) #!!!!!!!!!!!!!!!!!!!!!!!!!
         #change flipped value of selected card
         movi r18, LOC1
         ldw r4, 0(r18) 
@@ -502,10 +513,11 @@ IHANDLER:
 
     secondSelected:
         call stopScoreTimer
-
+        
         #update LOC2
         movi r4, LOC2
-        call updateLOC
+        #call updateLOC #!!!!!!!!!!!!!!!!!!!!!!!!!!
+		stw r7, 0(r4) #!!!!!!!!!!!!!!!!!!!!!!!!!
 
         #change flipped value (boolean) of selected card
         movi r18, LOC2
@@ -520,12 +532,7 @@ IHANDLER:
         call updateScore
         br prepareNextTurn
 
-        pairNotFound:
-        # set scorestate to 4 - not found
-        movia r20, SCORESTATE
-        movi r21, 4
-        ldw r21, (r20)
-
+        pairNotFound:		
 		# figure out who's turn it is
         movia r20, CURRENTPLAYER
         ldw r20, 0(r20)
@@ -562,6 +569,7 @@ IHANDLER:
         stw r17, 0(r18) #restore LOC1
 
         #restore NUMSELECTED
+		movia r16, NUMSELECTED
         movi r17, 0
         stw r17, 0(r16)
 
@@ -580,7 +588,7 @@ IHANDLER:
         movi r17, 2
         stw r17, 0(r20)
         
-    EXIT_IH:
+EXIT_IH:
 	# figure out who's turn it is
     movia r20, CURRENTPLAYER
     ldw r20, 0(r20)
@@ -594,14 +602,25 @@ IHANDLER:
     
     actuallyDrawTings2: 
     call drawScreen #back of cardsdq
-    call drawBoard     
+    call drawBoard
+	movia r9, JP1
+	movia r8, 0xFFFFFFFF 	#acknowledge interrupt
+    stw r8, 12(r9)
+      	movi r10, 1
+	wrctl ctl0, r10 #enable interrupts globally on processor
     ldw r9, 0(sp)
     ldw r10, 4(sp)
     ldw ea, 8(sp)  #not necessary currently - only once we add timer
     addi sp, sp, 12
     movi r22, 1
+    movia r20, TIMER2
+    stwio r0, 0(r20) # acknowlege interupt
     wrctl ctl1, r22 #enable interrupts (set PIE to 1)
     subi ea, ea, 4
+
+
+
+
 eret
 
 checkIfPair:
@@ -631,16 +650,18 @@ foundPair:
     ldw r21, 0(r20)
     addi r21, r21, 1
     stw r21, 0(r20)
+
     movi r2, 1
 
 doneChecking:
     ret
 
+
 # updateScore - increment by computeScoreAmount return value
 updateScore:
     subi sp, sp, 4
     stw ra, 0(sp)
-    
+
     movi r8, CURRENTPLAYER
     ldw r8, 0(r8)
     movi r10, 1
@@ -654,11 +675,11 @@ incP1Score:
 
 doneScore:      
     ldw r11, 0(r9)
-    beq r11, r0, exitScoreUpdate # cap score at 0
+    #beq r11, r0, exitScoreUpdate # cap score at 0
     call computeScoreAmount
-    addi r11, r11, r2
+    add r11, r11, r2
     stw r11, 0(r9)
-    
+
     exitScoreUpdate:
     ldw ra, 0(sp)
     addi sp, sp, 4
@@ -699,80 +720,97 @@ ret
 
 #r4 - address of LOC1 or LOC2
 updateLOC:
-movia r10, JTAGUART
-ldwio r10, 0(r10) #Load from the JTAG
-andi  r10, r10, 0x00FF # Data read is now in r10
+  subi sp, sp, 4
+  stw ra, 0(sp)
+  movia r9,JP1
 
-convertCharacter:
-    movi r11, '0'
-    beq r10, r11, Zeroto0
-    movi r11, '1'
-    beq r10, r11, Oneto1
-    movi r11, '2'
-    beq r10, r11, Twoto2
-    movi r11, '3'
-    beq r10, r11, Threeto3  
-    movi r11, '4'
-    beq r10, r11, Fourto4
-    movi r11, '5'
-    beq r10, r11, Fiveto5
-    movi r11, '6'
-    beq r10, r11, Sixto6
-    movi r11, '7'
-    beq r10, r11, Sevento7
-    movi r11, '8'
-    beq r10, r11, Eightto8
-    movi r11, '9'
-    beq r10, r11, Nineto9
-    movi r11, 'a'
-    beq r10, r11, Ato10
-    movi r11, 'b'
-    beq r10, r11, Bto11
-    movi r11, 'c'
-    beq r10, r11, Cto12
-    movi r11, 'd'
-    beq r10, r11, Dto13
-    movi r11, 'e'
-    beq r10, r11, Eto14
-    movi r11, 'f'
-    beq r10, r11, Fto15
-    br doneUpdatingLOC
+	#debouncing delay
+  	movia r4, 0xF4240
+  	call Timer
 
-    Zeroto0: movi r11, 0
-        br doneUpdatingLOC
-    Oneto1: movi r11, 1
-        br doneUpdatingLOC
-    Twoto2: movi r11, 2
-        br doneUpdatingLOC
-    Threeto3: movi r11, 3
-        br doneUpdatingLOC
-    Fourto4: movi r11, 4
-        br doneUpdatingLOC
-    Fiveto5: movi r11, 5
-        br doneUpdatingLOC
-    Sixto6: movi r11, 6
-        br doneUpdatingLOC
-    Sevento7: movi r11, 7
-        br doneUpdatingLOC
-    Eightto8: movi r11, 8
-        br doneUpdatingLOC
-    Nineto9: movi r11, 9
-        br doneUpdatingLOC
-    Ato10: movi r11, 10
-        br doneUpdatingLOC
-    Bto11: movi r11, 11
-        br doneUpdatingLOC  
-    Cto12: movi r11, 12
-        br doneUpdatingLOC
-    Dto13: movi r11, 13
-        br doneUpdatingLOC  
-    Eto14: movi r11, 14
-        br doneUpdatingLOC  
-    Fto15: movi r11, 15
-        br doneUpdatingLOC
+  ldwio r10,0(r9)  # Read port data 
+  andi  r10,r10,0xf # Mask out all but last 4 bits 
+  #movi r5, 0xf
+  #beq r10, r5, loop
 
-doneUpdatingLOC:
-    stwio r11, 0(r4)
+	movia r15, 0xFFFFFFF0
+    nor r10, r15, r10 #invert value
+
+#re-initalize with columns as inputs
+  movia r11,0x0f
+  stwio r11,4(r9)  # Set directions - rows to output, columns to input 
+  stwio r0,(r9)   # Drive all output pins low 
+  #movia r8, 0x0F 
+  #stwio r8, 8(r9) #interrupt register (columns trigger interrupt) 
+
+	#debouncing delay
+  	movia r4, 0xF4240
+  	call Timer
+
+   ldwio r11, 0(r9) #r11 holds values
+	andi  r11,r11,0xf0 # Mask out all but inputs (4-7)
+	srli r11, r11, 4 #4 bits right
+  	#movi r5, 0xf
+	#beq r11, r5, loop
+	movia r15, 0xFFFFFFF0
+    nor r11, r15, r11 
+    #r11 holds columns, r10 holds rows
+
+	   #r11 holds columns, r10 holds rows
+    movi r12, 0b1000
+    beq r10, r12, row3
+    movi r12, 0b0100
+    beq r10, r12, row2
+    movi r12, 0b0010
+    beq r10, r12, row1
+    movi r12, 0b0001
+    beq r10, r12, row0
+    findColumn:
+    movi r12, 0b1000
+    beq r11, r12, col3
+    movi r12, 0b0100
+    beq r11, r12, col2
+    movi r12, 0b0010
+    beq r11, r12, col1
+    movi r12, 0b0001
+    beq r11, r12, col0
+    br computeNumber
+
+    row0: movi r10, 0
+    br findColumn
+    row1: movi r10, 1
+    br findColumn
+    row2: movi r10, 2
+    br findColumn
+    row3:  movi r10, 3
+    br findColumn
+
+    col0: movi r11, 0
+    br computeNumber
+    col1:  movi r11, 1
+    br computeNumber
+    col2: movi r11, 2
+    br computeNumber
+    col3: movi r11, 3
+    br computeNumber
+
+computeNumber:
+	muli r10, r10, 4
+	add r14, r11, r10 #r14 holds number
+	mov r2, r14
+doneUpdatingLOC: 
+    #stwio r14, 0(r4)
+	#debouncing delay
+  	movia r4, 0x5F5E100
+  	call Timer
+#reset to original settings
+  movia r10,0xf0
+  stwio r10,4(r9)  # Set directions - rows to input, columns to output 
+  stwio r0,(r9)   # Drive all output pins low
+  #movia r8, 0xf0 
+  #stwio r8, 8(r9) #interrupt register (columns trigger interrupt) 
+ldw ra, 0(sp)
+addi sp, sp, 4
 ret
 
 # determines score state and stores it in memory (SCORESTATE)
@@ -820,13 +858,8 @@ computeScoreAmount:
     beq r21, r0, scoreAmount0
     movi r20, 1
     beq r21, r20, scoreAmount1
-    movi r20, 2
-    beq r21, r20, scoreAmount2
-    movi r20, 3
-    beq r21, r20, scoreAmount3
-    movi r20, 4
-    beq r21, r20, scoreAmount4 
-    
+    br scoreAmount2
+
     scoreAmount0:
         movi r2, 3
         ret
@@ -835,10 +868,4 @@ computeScoreAmount:
         ret
     scoreAmount2:
         movi r3, 1
-        ret
-    scoreAmount3:
-        movi r2, -2
-        ret
-    scoreAmount4:
-        movi r2, -1
         ret

@@ -20,6 +20,9 @@
 .equ TIMER2, 0xFF202020
 .equ pixelBase, 0x08000000
 .equ charBase,  0x09000000
+.equ HEX_P1, 0xFF200030
+.equ HEX_P2, 0xFF200020
+
 
 .global _start
 .section .text
@@ -29,7 +32,6 @@ INIT:
     # init devices
 	call initHex
     call initScoreTimer
-    #call initTimer
     movia r4, START
     call drawScreen #start image
 
@@ -49,27 +51,35 @@ WaitForStartLoop:
     # break out of loop when triggered by button press
     
 GameSetUp:
+    #enable PIE
+    movia r10, 1
+    wrctl ctl0, r10 #enable interrupts globally on processor
     movia r4, ALL_UP
     call drawScreen #front of cards
     
     #wait for timer
     movia r4, 0x1DCD6500 #period 
-    #call Timer
+    call Timer
     movia r4, ALL_DOWN_P1
     call drawScreen #back of cards
 
-
+	call startScoreTimer
+	call writeScoresToHex
 
 MainLoop:
     movi r10, 8 # max number of pairs 
     movia r9, NUMPAIRS
 	ldw r9, 0(r9)
     beq r9, r10, gameDone # max num pairs selected - Game done
+	bgt r9, r10, gameDone
+	br MainLoop
 
 gameDone:
-    #call displayWinner - press button to start
-    call restoreFlipped
+	    #disable PIE
+    wrctl ctl0, r0 #enable interrupts globally on processor
 
+    call displayWinner
+    call restoreFlipped
     #restore LOC1 and LOC2
     movia r9, LOC1
     movia r10, LOC2
@@ -77,11 +87,21 @@ gameDone:
     stw r11, 0(r9) #restore LOC2
     stw r11, 0(r10) #restore LOC1
 
+	#restore NUMPAIRS
+	movia r9, NUMPAIRS
+	stw r0, 0(r9)
+
+	#restore SCORESTATE
+	movi r9, -1
+	movia r11, SCORESTATE
+	stw r9, 0(r11)
+	
     #restore score
     movia r10, PLAYER1
     movia r11, PLAYER2
     ldw r0, 0(r10)
     ldw r0, 0(r11)
+	call writeScoresToHex
 	
 	movi r10, 1
 	movia r11, CURRENTPLAYER
@@ -123,7 +143,7 @@ DelayFinished:
 
 initScoreTimer:
     movia r20, TIMER2
-    movia r16, 1000000000 # mov period - 10s for now
+    movia r16, 1500000000 # mov period - 10s for now
     andi  r21, r16, 0xFFFF # take lower 16 bits
     srli  r22, r16, 16 # take upper 16 bits
     # load period into timer
@@ -138,6 +158,12 @@ initScoreTimer:
 
 startScoreTimer:
     movia r20, TIMER2
+    movia r16, 1500000000 # mov period - 10s for now
+    andi  r21, r16, 0xFFFF # take lower 16 bits
+    srli  r22, r16, 16 # take upper 16 bits
+    # load period into timer
+    stwio r21, 8(r20) #load LSB into periodl
+    stwio r22, 12(r20) #load MSB into periodh
     stwio r0, (r20)
     movi r16, 0b0101
     stwio r16, 4(r20)
@@ -469,9 +495,10 @@ IHANDLER:
     movi r8, 0b000000000100
     beq et, r8, TIMER2_IH 
     movi r8, 0b100000000000
-
+    
     beq et, r8, INPUT_IH 
     br EXIT_IH 
+
 
     TIMER2_IH:
     movia r20, TIMER2
@@ -479,7 +506,38 @@ IHANDLER:
     movia r20, SCORESTATE
     movi r21, 3
     stw r21, (r20) # set score state to timeout
+	
+	movia r20,CURRENTPLAYER
+	ldw r20, 0(r20)
+	movi r21, 1
+	beq r20, r21, player1Decrement
+	movia r20, PLAYER2
+	ldw r20, 0(r20)
+	br decideToDecrement
+	
+	player1Decrement:
+	movia r20, PLAYER1
+	ldw r20, 0(r20)
+
+	decideToDecrement:
+	beq r20, r0, flipCardsBackTimeOut
     call updateScore
+
+	flipCardsBackTimeOut:
+        movi r18, LOC1
+        ldw r4, 0(r18) 
+		movia r18, 0xFFFFFFFF
+		beq r18, r4, prepareNextTurn
+        movi r5, 0
+        call changeFlippedValue
+        
+        movi r18, LOC2
+        ldw r4, 0(r18) 
+		movia r18, 0xFFFFFFFF
+		beq r18, r4, prepareNextTurn
+        movi r5, 0
+        call changeFlippedValue
+
     br prepareNextTurn
 
     INPUT_IH:
@@ -529,12 +587,7 @@ IHANDLER:
         call updateScore
         br prepareNextTurn
 
-        pairNotFound:		
-		        # set scorestate to 4 - not found
-        movia r20, SCORESTATE
-        movi r21, 4
-        ldw r21, (r20)
-
+        pairNotFound:
 		# figure out who's turn it is
         movia r20, CURRENTPLAYER
         ldw r20, 0(r20)
@@ -592,6 +645,7 @@ IHANDLER:
         
 EXIT_IH:
 	# figure out who's turn it is
+	call writeScoresToHex 
     movia r20, CURRENTPLAYER
     ldw r20, 0(r20)
     movi r21, 1
@@ -608,16 +662,18 @@ EXIT_IH:
 	movia r9, JP1
 	movia r8, 0xFFFFFFFF 	#acknowledge interrupt
     stw r8, 12(r9)
-      
+      	movi r10, 1
+	wrctl ctl0, r10 #enable interrupts globally on processor
     ldw r9, 0(sp)
     ldw r10, 4(sp)
     ldw ea, 8(sp)  #not necessary currently - only once we add timer
     addi sp, sp, 12
     movi r22, 1
+    movia r20, TIMER2
+    stwio r0, 0(r20) # acknowlege interupt
     wrctl ctl1, r22 #enable interrupts (set PIE to 1)
     subi ea, ea, 4
-	movi r10, 1
-	wrctl ctl0, r10 #enable interrupts globally on processor
+
 
 
 
@@ -675,7 +731,6 @@ incP1Score:
 
 doneScore:      
     ldw r11, 0(r9)
-    beq r11, r0, exitScoreUpdate # cap score at 0
     call computeScoreAmount
     add r11, r11, r2
     stw r11, 0(r9)
@@ -742,7 +797,7 @@ updateLOC:
   stwio r0,(r9)   # Drive all output pins low 
   #movia r8, 0x0F 
   #stwio r8, 8(r9) #interrupt register (columns trigger interrupt) 
-  
+
 	#debouncing delay
   	movia r4, 0xF4240
   	call Timer
@@ -807,10 +862,8 @@ doneUpdatingLOC:
   movia r10,0xf0
   stwio r10,4(r9)  # Set directions - rows to input, columns to output 
   stwio r0,(r9)   # Drive all output pins low
-
   #movia r8, 0xf0 
   #stwio r8, 8(r9) #interrupt register (columns trigger interrupt) 
-
 ldw ra, 0(sp)
 addi sp, sp, 4
 ret
@@ -851,7 +904,7 @@ determineScoreState:
 # 0 - +3
 # 1 - +2
 # 2 - +1 
-# 3 - timeout -2
+# 3 - timeout -1
 # 4 - wrong -1
 computeScoreAmount:
     movia r21, SCORESTATE
@@ -864,8 +917,6 @@ computeScoreAmount:
     beq r21, r20, scoreAmount2
     movi r20, 3
     beq r21, r20, scoreAmount3
-    movi r20, 4
-    beq r21, r20, scoreAmount4 
     
     scoreAmount0:
         movi r2, 3
@@ -877,8 +928,140 @@ computeScoreAmount:
         movi r3, 1
         ret
     scoreAmount3:
-        movi r2, -2
-        ret
-    scoreAmount4:
         movi r2, -1
         ret
+
+
+# gets 4bit number - converts to appropriate 6bit hex display shit
+decodeTo7seg:
+    beq r4, r0, hexNum0
+    movi r20, 1
+    beq r4, r20, hexNum1
+    movi r20, 2
+    beq r4, r20, hexNum2
+    movi r20, 3
+    beq r4, r20, hexNum3
+    movi r20, 4
+    beq r4, r20, hexNum4
+    movi r20, 5
+    beq r4, r20, hexNum5
+    movi r20, 6
+    beq r4, r20, hexNum6
+    movi r20, 7
+    beq r4, r20, hexNum7
+    movi r20, 8
+    beq r4, r20, hexNum8
+    movi r20, 9
+    beq r4, r20, hexNum9
+    movi r20, 10
+    beq r4, r20, hexNumA
+    movi r20, 11
+    beq r4, r20, hexNumB
+    movi r20, 12
+    beq r4, r20, hexNumC
+    movi r20, 13
+    beq r4, r20, hexNumD
+    movi r20, 14
+    beq r4, r20, hexNumE
+    movi r20, 15
+    beq r4, r20, hexNumF
+    br decodeExit
+
+    hexNum0:
+        movi r2, 0b0111111
+        br decodeExit
+    hexNum1:
+        movi r2, 0b0000110
+        br decodeExit
+    hexNum2:
+        movi r2, 0b1011011
+        br decodeExit
+    hexNum3:
+        movi r2, 0b1001111
+        br decodeExit
+    hexNum4:
+        movi r2, 0b1100110
+        br decodeExit
+    hexNum5:
+        movi r2, 0b1101101
+        br decodeExit
+    hexNum6:
+        movi r2, 0b1111101
+        br decodeExit
+    hexNum7:
+        movi r2, 0b0000111
+        br decodeExit
+    hexNum8:
+        movi r2, 0b1111111
+        br decodeExit
+    hexNum9:
+        movi r2, 0b1101111
+        br decodeExit
+    hexNumA:
+        movi r2, 0b1110111
+        br decodeExit
+    hexNumB:
+        movi r2, 0b1111100
+        br decodeExit
+    hexNumC:
+        movi r2, 0b0111001
+        br decodeExit
+    hexNumD:
+        movi r2, 0b1011110
+        br decodeExit
+    hexNumE:
+        movi r2, 0b1111001
+        br decodeExit
+    hexNumF:
+        movi r2, 0b1110001
+
+    decodeExit:
+ret
+
+# takes in a word
+# r4 - word
+# r5 - address of hex display
+# computes shit
+writeTo7seg:
+    # save ra to stack
+    subi sp, sp, 4
+    stw ra, 0(sp)
+
+    andi r20, r4, 0xF
+    srli r4, r4, 4
+    
+    call decodeTo7seg
+    mov r21, r2
+    slli r21, r21, 8
+
+    mov r4, r20
+    call decodeTo7seg
+    mov r20, r2
+
+    add r21, r21, r20
+    stw r21, 0(r5)
+
+    writeToSegExit:
+    ldw ra, 0(sp)
+    addi sp, sp, 4
+    ret
+
+writeScoresToHex:
+    # save ra to stack
+    subi sp, sp, 4
+    stw ra, 0(sp)
+
+    movia r4, PLAYER1
+    ldw r4, 0(r4)
+    movia r5, HEX_P1
+    call writeTo7seg
+
+    movia r4, PLAYER2
+    ldw r4, 0(r4)
+    movia r5, HEX_P2
+    call writeTo7seg
+
+    writeScoresExit:
+    ldw ra, 0(sp)
+    addi sp, sp, 4
+    ret
